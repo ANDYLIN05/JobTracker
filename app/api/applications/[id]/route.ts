@@ -1,6 +1,27 @@
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { applications } from "@/db/schema";
-const statuses=new Set(["Applied","Assessment","Interview","Offer","Rejected","Withdrawn"]);
-export async function PUT(request:Request,context:{params:Promise<{id:string}>}){try{const {id:raw}=await context.params;const id=Number(raw),b=await request.json() as Record<string,string>;const company=b.company?.trim(),position=b.position?.trim(),appliedDate=b.appliedDate?.trim(),status=b.status?.trim();if(!Number.isInteger(id)||!company||!position||!appliedDate||!status)return Response.json({error:"Complete application details are required."},{status:400});if(!statuses.has(status))return Response.json({error:"Invalid status."},{status:400});const [application]=await getDb().update(applications).set({company,position,appliedDate,status,jobUrl:b.jobUrl?.trim()||"",notes:b.notes?.trim()||"",updatedAt:sql`CURRENT_TIMESTAMP`}).where(eq(applications.id,id)).returning();return application?Response.json({application}):Response.json({error:"Application not found."},{status:404})}catch(e){return Response.json({error:e instanceof Error?e.message:"Could not update."},{status:500})}}
-export async function DELETE(_request:Request,context:{params:Promise<{id:string}>}){try{const {id:raw}=await context.params;const id=Number(raw);if(!Number.isInteger(id))return Response.json({error:"Invalid id."},{status:400});const [application]=await getDb().delete(applications).where(eq(applications.id,id)).returning();return application?Response.json({deleted:true}):Response.json({error:"Application not found."},{status:404})}catch(e){return Response.json({error:e instanceof Error?e.message:"Could not delete."},{status:500})}}
+import { readApplication, applicationError } from "@/lib/applications";
+type Context={params:Promise<{id:string}>};
+async function getId(context: Context) {
+  const {id}=await context.params;
+  return /^\d+$/.test(id) && Number.isSafeInteger(Number(id)) && Number(id)>0 ? Number(id) : null;
+}
+export async function PUT(request: Request, context: Context) {
+  const id=await getId(context);
+  if(id===null)return Response.json({error:"Invalid id."},{status:400});
+  const result=await readApplication(request);
+  if(!result.success)return Response.json({error:result.error.issues[0].message},{status:400});
+  try {
+    const [application]=await getDb().update(applications).set({...result.data,updatedAt:sql`CURRENT_TIMESTAMP`}).where(eq(applications.id,id)).returning();
+    return application?Response.json({application}):Response.json({error:"Application not found."},{status:404});
+  } catch(error) { return Response.json({error:applicationError(error)},{status:500}); }
+}
+export async function DELETE(_request: Request, context: Context) {
+  const id=await getId(context);
+  if(id===null)return Response.json({error:"Invalid id."},{status:400});
+  try {
+    const [application]=await getDb().delete(applications).where(eq(applications.id,id)).returning();
+    return application?Response.json({deleted:true}):Response.json({error:"Application not found."},{status:404});
+  } catch(error) { return Response.json({error:applicationError(error)},{status:500}); }
+}
