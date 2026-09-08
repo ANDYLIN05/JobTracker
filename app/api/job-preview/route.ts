@@ -1,6 +1,25 @@
-const clean = (value: unknown): string => typeof value === "string" ? value.replace(/&amp;/g,"&").replace(/&#39;|&apos;/g,"'").replace(/&quot;/g,'"').replace(/&nbsp;/g," ").replace(/&#(\d+);/g,(_,n)=>{const code=Number(n);return code<=0x10ffff?String.fromCodePoint(code):""}).replace(/\s+/g," ").trim() : "";
-function safeUrl(value: string, base?: URL) {
+const clean = (value: unknown): string =>
+  typeof value === "string"
+    ? value
+        .replace(/&amp;/g, "&")
+        .replace(/&#39;|&apos;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&nbsp;/g, " ")
+        .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => {
+          const code = parseInt(n, 16);
+          return code <= 0x10ffff ? String.fromCodePoint(code) : "";
+        })
+        .replace(/&#(\d+);/g, (_, n) => {
+          const code = Number(n);
+          return code <= 0x10ffff ? String.fromCodePoint(code) : "";
+        })
+        .replace(/\s+/g, " ")
+        .trim()
+    : "";
+  function safeUrl(value: string, base?: URL) {
   const url = new URL(value, base);
+  console.log("hostname:", url.hostname);
+  console.log("pathname:", url.pathname);
   const host = url.hostname.toLowerCase();
   if (!["http:","https:"].includes(url.protocol) || url.username || url.password ||
     host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
@@ -14,6 +33,7 @@ function meta(html: string, key: string) {
     const attrs = new Map<string,string>();
     for (const a of tag[0].matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) attrs.set(a[1].toLowerCase(),a[2]??a[3]);
     if ((attrs.get("property")||attrs.get("name"))?.toLowerCase() === key) return attrs.get("content")||"";
+
   }
   return "";
 }
@@ -28,9 +48,31 @@ function findJob(value: unknown): Record<string,unknown> | null {
 }
 function structured(html: string) {
   for (const match of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
-    try { const found=findJob(JSON.parse(match[1]));if(found)return found; } catch { /* Try the next JSON-LD block. */ }
+    try { 
+
+      const parsed=JSON.parse(match[1]);
+      console.log("JSON-LD BLOCK:", parsed);
+      const found=findJob(parsed);
+      if(found)return found; } catch { /* Try the next JSON-LD block. */ 
+      }
   }
   return null;
+}
+function companyFromUrl(url: URL): string {
+  if (url.hostname.includes("myworkdayjobs.com")) {
+    const parts = url.pathname.split("/").filter(Boolean);
+    const siteName = parts[0];
+
+    if (siteName) {
+      const pieces = siteName.split("_");
+
+      if (pieces.length >= 2) {
+        return pieces[1].toUpperCase();
+      }
+    }
+  }
+
+  return "";
 }
 export async function POST(request: Request) {
   try {
@@ -53,8 +95,9 @@ export async function POST(request: Request) {
     const job=structured(html),organization=job?.hiringOrganization;
     const pageTitle=clean(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]);
     const greenhouseCompany=["boards.greenhouse.io","job-boards.greenhouse.io"].includes(url.hostname) ? pageTitle.match(/^Job Application for .+ at (.+)$/i)?.[1] : "";
-    const company=clean(organization && typeof organization==="object" && "name" in organization ? organization.name : "")||clean(greenhouseCompany)||clean(meta(html,"og:site_name"));
+    const company=clean(organization && typeof organization==="object" && "name" in organization ? organization.name : "")||clean(greenhouseCompany)||clean(meta(html,"og:site_name"))|| clean(companyFromUrl(url));;
     const title=clean(job?.title)||clean(meta(html,"og:title")||html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]);
+    
     if(!title || /^(just a moment|access denied|attention required|sign in|log in|captcha)/i.test(title))throw new Error("The job site blocked automatic reading. Enter the details manually.");
     return Response.json({company,position:job?title:title.split(/\s[-|\u2013\u2014]\s/)[0],url:url.toString()});
   } catch(error) {
