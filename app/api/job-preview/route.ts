@@ -18,8 +18,6 @@ const clean = (value: unknown): string =>
     : "";
   function safeUrl(value: string, base?: URL) {
   const url = new URL(value, base);
-  console.log("hostname:", url.hostname);
-  console.log("pathname:", url.pathname);
   const host = url.hostname.toLowerCase();
   if (!["http:","https:"].includes(url.protocol) || url.username || url.password ||
     host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") ||
@@ -51,7 +49,6 @@ function structured(html: string) {
     try { 
 
       const parsed=JSON.parse(match[1]);
-      console.log("JSON-LD BLOCK:", parsed);
       const found=findJob(parsed);
       if(found)return found; } catch { /* Try the next JSON-LD block. */ 
       }
